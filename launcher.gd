@@ -24,7 +24,7 @@ func _ready():
 
 	ensure_install_folder_exists()
 	if has_local_version():
-		print("Game already installed. No download needed.")
+		print("A game version is already installed. No full install needed.")
 		fetch_version_info()
 		# launch_game()
 	else:
@@ -54,98 +54,74 @@ func get_local_version() -> String:
 	advance_progress()
 
 func fetch_version_info():
-	var url = "https://godot-airtable-backend.onrender.com/download/Version.json"  # 🔁 Replace with your Render URL
+	var url = "https://godot-airtable-backend.onrender.com/get_version"  # 🔁 Replace with your Render URL
 	var err = http.request(url)
 	if err != OK:
 		print("Failed to send request for version.json")
 	advance_progress()
 
-func download_next_file():
-	if current_file_index >= files_to_download.size():
-		print("All files downloaded.")
-		save_local_version()
-		return
-
-	var file_info = files_to_download[current_file_index]
-	var download_url = file_info["url"]
-	print("Downloading: ", download_url)
-	var err = file_downloader.request(download_url)
-	if err != OK:
-		print("Failed to send request for: ", download_url)
-	advance_progress()
-
 func save_local_version():
 	var file = FileAccess.open(VERSION_FILE, FileAccess.WRITE)
 	if file:
-		file.store_string(remote_version_data["version"])
+		file.store_string(remote_version_data)  # now just a string
 		file.close()
 		print("Saved version file: ", VERSION_FILE)
 	play_button.disabled = false
-	var tween = create_tween()
-	tween.tween_property(Progress, "value", Progress.max_value, 0.1)
-	fade_out_progress_bar()
 
 
 func _on_http_request_request_completed(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray) -> void:
 	if response_code != 200:
-		print("Failed to fetch version.json:", response_code)
+		print("Failed to fetch version info:", response_code)
 		return
 
-	# Parse the remote version JSON
-	remote_version_data = JSON.parse_string(body.get_string_from_utf8())
-	if remote_version_data == null:
-		print("Invalid JSON response.")
-		return
-
-	files_to_download = remote_version_data.get("files", [])
-	var remote_version = remote_version_data.get("version", "")
+	var remote_version = body.get_string_from_utf8().strip_edges()
+	remote_version_data = body.get_string_from_utf8().strip_edges()
 	var local_version = get_local_version()
 
 	print("Local version:", local_version)
 	print("Remote version:", remote_version)
 
-	# No version found – first install
 	if local_version == "":
-		print("No local version found, downloading full install.")
-		current_file_index = 0
-		download_next_file()
-		return
-
-	# Version mismatch – update required
-	if local_version != remote_version:
+		print("No local version found — downloading full install.")
+		download_game_client()
+		advance_progress()
+	elif local_version != remote_version:
 		print("Update available. Downloading new version.")
-		current_file_index = 0
-		download_next_file()
-		return
+		download_game_client()
+		advance_progress()
 	else:
-		print("Current version is fully up-to-date.")
+		print("Game is up-to-date.")
+		play_button.disabled = false
 		var tween = create_tween()
 		tween.tween_property(Progress, "value", Progress.max_value, 0.1)
 		fade_out_progress_bar()
-	play_button.disabled = false
-	
+
 	
 
-
+func download_game_client():
+	var download_url = "https://godot-airtable-backend.onrender.com/download"
+	var err = file_downloader.request(download_url)
+	if err != OK:
+		print("Failed to send download request.")
+	advance_progress()
 
 func _on_file_downloader_request_completed(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray) -> void:
 	if response_code != 200:
-		print("Failed to download file:", response_code)
+		print("Failed to download client:", response_code)
 		return
 
-	var file_info = files_to_download[current_file_index]
-	var file_path = INSTALL_PATH + file_info["name"]
-
+	var file_path = INSTALL_PATH + "Genshin DnD Client.exe"
 	var file = FileAccess.open(file_path, FileAccess.WRITE)
 	if file:
 		file.store_buffer(body)
 		file.close()
-		print("Saved to: ", file_path)
+		print("Saved client.exe to: ", file_path)
+		play_button.disabled = false
 	else:
-		print("Failed to save file: ", file_path)
+		print("Failed to save client.exe.")
+		play_button.disabled = false
 
-	current_file_index += 1
-	download_next_file()
+	save_local_version()
 	var tween = create_tween()
 	tween.tween_property(Progress, "value", Progress.max_value, 0.1)
 	fade_out_progress_bar()
